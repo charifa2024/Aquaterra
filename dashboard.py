@@ -1,237 +1,246 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import time
-import os
-import sys
+import os, sys, time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from sensors import simulate_sensors, FIELD_PROFILES
+from sensors import simulate_sensors, PROFILS
 from ai_agent import run_analysis
 from audio_generator import generate_audio
+from rapport_pdf import generer_rapport
 
-# Page config
-st.set_page_config(
-    page_title="Aquaterra",
-    page_icon="🌿",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Aquaterra", page_icon="🌿", layout="wide")
 
-# Custom CSS
 st.markdown("""
 <style>
-    .metric-card {
-        background: linear-gradient(135deg, #1a472a, #2d6a4f);
-        border-radius: 12px;
-        padding: 16px;
-        color: white;
-        text-align: center;
-        margin: 4px;
-    }
-    .status-critical { background-color: #ff4444; color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold; }
-    .status-low      { background-color: #ff8800; color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold; }
-    .status-optimal  { background-color: #00aa44; color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold; }
-    .status-excess   { background-color: #0066cc; color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold; }
-    .podcast-box { background: #f0f7f0; border-left: 4px solid #2d6a4f; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap; }
-    h1 { color: #1a472a !important; }
+.stMetric label { font-size: 12px !important; }
+.bloc-vert { background:#e8f5e9; border-left:4px solid #2e7d32; padding:12px 16px; border-radius:6px; margin:6px 0; }
+.bloc-rouge { background:#ffebee; border-left:4px solid #c62828; padding:12px 16px; border-radius:6px; margin:6px 0; }
+.bloc-orange { background:#fff3e0; border-left:4px solid #e65100; padding:12px 16px; border-radius:6px; margin:6px 0; }
+.bloc-bleu { background:#e3f2fd; border-left:4px solid #1565c0; padding:12px 16px; border-radius:6px; margin:6px 0; }
+.edu-box { background:#f3e5f5; border-left:4px solid #6a1b9a; padding:10px 14px; border-radius:6px; margin:4px 0; font-size:13px; }
+.podcast-box { background:#f1f8e9; border:1px solid #aed581; padding:16px; border-radius:8px; font-family:monospace; font-size:12px; white-space:pre-wrap; }
+.titre-rapport { font-size:28px; font-weight:700; color:#1b5e20; margin:0; }
+.sous-titre { font-size:14px; color:#555; margin-bottom:16px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "last_analysis" not in st.session_state:
-    st.session_state.last_analysis = None
-if "last_script" not in st.session_state:
-    st.session_state.last_script = None
-if "last_data" not in st.session_state:
-    st.session_state.last_data = None
+if "historique" not in st.session_state:
+    st.session_state.historique = []
+if "derniere_analyse" not in st.session_state:
+    st.session_state.derniere_analyse = None
+if "derniere_data" not in st.session_state:
+    st.session_state.derniere_data = None
+if "dernier_script" not in st.session_state:
+    st.session_state.dernier_script = None
 
-# Sidebar
+# ── Sidebar ─────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://via.placeholder.com/200x60/1a472a/ffffff?text=🌿+AQUATERRA", use_container_width=True)
+    st.markdown("## 🌿 Aquaterra")
+    st.caption("Système intelligent de surveillance agricole")
     st.markdown("---")
     st.subheader("⚙️ Configuration")
-    
-    profile = st.selectbox(
-        "Field Profile",
-        options=list(FIELD_PROFILES.keys()),
-        format_func=lambda x: x.replace("_", " ").title()
+
+    profil = st.selectbox(
+        "Profil du champ",
+        options=["Champ sec", "Champ optimal", "Champ humide"],
+        index=1
     )
-    
-    auto_refresh = st.toggle("🔄 Auto-refresh (30s)", value=False)
-    generate_audio_toggle = st.toggle("🎙️ Generate podcast audio", value=True)
-    
+    profil_desc = {
+        "Champ sec": "🔴 Sol sec — risque de sécheresse",
+        "Champ optimal": "🟢 Conditions idéales",
+        "Champ humide": "🔵 Sol saturé — risque d'inondation"
+    }
+    st.caption(profil_desc[profil])
+
     st.markdown("---")
-    st.subheader("ℹ️ About")
-    st.caption("Aquaterra monitors soil conditions and generates actionable recommendations for farmers through AI analysis and audio podcasts.")
+    gen_audio = st.toggle("🎙️ Générer le podcast audio", value=True)
+    gen_pdf   = st.toggle("📄 Générer le rapport PDF", value=True)
 
-# Header
-st.title("🌿 Aquaterra — Smart Agricultural Monitoring")
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.markdown("---")
+    st.subheader("ℹ️ À propos")
+    st.caption(
+        "Aquaterra surveille les conditions du sol et génère des recommandations "
+        "agricoles via l'IA, diffusées sous forme de podcast audio en français."
+    )
 
-# Run analysis button
-col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 4])
-with col_btn1:
-    run_btn = st.button("▶ Run Analysis", type="primary", use_container_width=True)
-with col_btn2:
-    clear_btn = st.button("🗑️ Clear History", use_container_width=True)
+# ── Header ──────────────────────────────────────────────────────
+st.markdown('<p class="titre-rapport">🌿 Aquaterra — Surveillance Agricole Intelligente</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="sous-titre">Module : Transition Écologique & Dynamique Culturelle Artistique | Dernière mise à jour : {datetime.now().strftime("%d/%m/%Y à %H:%M:%S")}</p>', unsafe_allow_html=True)
 
-if clear_btn:
-    st.session_state.history = []
+col1, col2, col3 = st.columns([1, 1, 5])
+with col1:
+    lancer = st.button("▶ Analyser", type="primary", use_container_width=True)
+with col2:
+    effacer = st.button("🗑️ Effacer", use_container_width=True)
+
+if effacer:
+    st.session_state.historique = []
+    st.session_state.derniere_analyse = None
     st.rerun()
 
-# Run analysis
-if run_btn or (auto_refresh and time.time() % 30 < 1):
-    with st.spinner("🔬 Analyzing soil data..."):
-        data = simulate_sensors(profile)
-        analysis, script = run_analysis(data)
-        
-        # Generate audio
+# ── Analyse ─────────────────────────────────────────────────────
+if lancer:
+    with st.spinner("🔬 Analyse en cours..."):
+        data = simulate_sensors(profil)
+        analyse, script = run_analysis(data)
+
         audio_path = None
-        if generate_audio_toggle:
+        if gen_audio:
             try:
                 audio_path = generate_audio(script)
             except Exception as e:
-                st.warning(f"Audio generation failed: {e}")
-        
-        # Save to history
-        st.session_state.history.append({
+                st.warning(f"Audio non généré : {e}")
+
+        pdf_path = None
+        if gen_pdf:
+            try:
+                pdf_path = generer_rapport(data, analyse)
+            except Exception as e:
+                st.warning(f"PDF non généré : {e}")
+
+        st.session_state.historique.append({
             "timestamp": data["timestamp"],
-            "data": data,
-            "analysis": analysis,
-            "script": script,
-            "audio": audio_path
+            "data": data, "analyse": analyse,
+            "script": script, "audio": audio_path, "pdf": pdf_path
         })
-        
-        st.session_state.last_analysis = analysis
-        st.session_state.last_script = script
-        st.session_state.last_data = data
+        st.session_state.derniere_analyse = analyse
+        st.session_state.derniere_data    = data
+        st.session_state.dernier_script   = script
+        st.session_state.dernier_pdf      = pdf_path
+        st.session_state.dernier_audio    = audio_path
 
-# Display latest results
-if st.session_state.last_analysis:
-    analysis = st.session_state.last_analysis
-    data = st.session_state.last_data
-    script = st.session_state.last_script
-
-    st.markdown("---")
-    st.subheader("📊 Latest Sensor Readings")
-    
-    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-    metrics = [
-        (col1, "🌡️ Temp", f"{data['temperature']}°C"),
-        (col2, "💧 Humidity", f"{data['humidity']}%"),
-        (col3, "🧪 pH", f"{data['ph']}"),
-        (col4, "🌧️ Rainfall", f"{data['rainfall']}mm"),
-        (col5, "🟢 Nitrogen", f"{data['N']}"),
-        (col6, "🔵 Phosphorus", f"{data['P']}"),
-        (col7, "🟡 Potassium", f"{data['K']}"),
-    ]
-    for col, label, value in metrics:
-        with col:
-            st.metric(label=label, value=value)
+# ── Résultats ────────────────────────────────────────────────────
+if st.session_state.derniere_analyse:
+    analyse = st.session_state.derniere_analyse
+    data    = st.session_state.derniere_data
+    script  = st.session_state.dernier_script
 
     st.markdown("---")
-    st.subheader("🤖 AI Analysis Results")
+    st.subheader("📊 Données des capteurs")
+    c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
+    c1.metric("🌡️ Température", f"{data['temperature']}°C")
+    c2.metric("💧 Humidité",    f"{data['humidity']}%")
+    c3.metric("🧪 pH",          f"{data['ph']}")
+    c4.metric("🌧️ Pluies",      f"{data['rainfall']}mm")
+    c5.metric("🟢 Azote",       f"{data['N']}")
+    c6.metric("🔵 Phosphore",   f"{data['P']}")
+    c7.metric("🟡 Potassium",   f"{data['K']}")
+
+    # ── Irrigation ──────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🤖 Résultats de l'analyse IA")
 
     col_a, col_b, col_c = st.columns(3)
 
     with col_a:
-        irr = analysis["irrigation"]
-        status_color = {"CRITICAL": "🔴", "LOW": "🟠", "OPTIMAL": "🟢", "EXCESS": "🔵"}.get(irr["status"], "⚪")
-        st.markdown(f"**💧 Irrigation — {status_color} {irr['status']}**")
-        st.info(irr["advice"])
-        if irr["liters_per_m2"] > 0:
-            st.metric("Required water", f"{irr['liters_per_m2']} L/m²")
+        irr = analyse["irrigation"]
+        couleur_map = {"CRITIQUE": "rouge", "BAS": "orange", "OPTIMAL": "vert", "EXCÈS": "bleu"}
+        cls = couleur_map.get(irr["statut"], "vert")
+        st.markdown(f'<div class="bloc-{cls}"><b>💧 Irrigation — {irr["emoji"]} {irr["statut"]}</b><br>{irr["conseil"]}</div>', unsafe_allow_html=True)
+        if irr["litres"] > 0:
+            st.metric("Volume requis", f"{irr['litres']} L/m²")
+        st.markdown(f'<div class="edu-box">📚 <b>Savoir :</b> {irr["education"]}</div>', unsafe_allow_html=True)
 
     with col_b:
-        ph = analysis["ph"]
-        st.markdown(f"**🧪 Soil pH — {ph['emoji']} {ph['status']}**")
-        st.info(ph["advice"])
-        
-        st.markdown("**🌱 Nutrients**")
-        for n in analysis["nutrients"]:
-            st.write(f"• {n}")
+        ph = analyse["ph"]
+        cls_ph = "orange" if ph["statut"] in ["ACIDE","ALCALIN"] else "vert"
+        st.markdown(f'<div class="bloc-{cls_ph}"><b>🧪 pH — {ph["emoji"]} {ph["statut"]}</b><br>{ph["conseil"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="edu-box">📚 <b>Savoir :</b> {ph["education"]}</div>', unsafe_allow_html=True)
+
+        st.markdown("<br>**🌱 Nutriments**", unsafe_allow_html=True)
+        for n in analyse["nutriments"]:
+            em = "⚠️" if n["statut"] == "BAS" else "✅"
+            cls_n = "orange" if n["statut"] == "BAS" else "vert"
+            st.markdown(f'<div class="bloc-{cls_n}"><b>{em} {n["nutriment"]}</b> — {n["valeur"]}<br>{n["conseil"]}</div>', unsafe_allow_html=True)
+            if n["education"]:
+                st.markdown(f'<div class="edu-box">📚 {n["education"]}</div>', unsafe_allow_html=True)
 
     with col_c:
-        crop = analysis["crop"]
-        st.markdown("**🌾 Recommended Crop**")
-        st.success(f"**{crop['crop'].upper()}**")
-        st.progress(crop["confidence"] / 100)
-        st.caption(f"Model confidence: {crop['confidence']}%")
+        culture = analyse["culture"]
+        st.markdown('<div class="bloc-vert"><b>🌾 Culture recommandée par l\'IA</b></div>', unsafe_allow_html=True)
+        st.markdown(f"### {culture['culture_fr'].upper()}")
+        st.progress(culture["confiance"] / 100)
+        st.caption(f"Confiance du modèle : {culture['confiance']}%")
 
-    # Podcast section
+    # ── Podcast ──────────────────────────────────────────────────
     st.markdown("---")
-    st.subheader("📻 Generated Podcast")
+    st.subheader("📻 Podcast Agricole Généré Automatiquement")
 
-    tab1, tab2 = st.tabs(["📄 Script", "🎧 Audio"])
-    
-    with tab1:
+    tab_script, tab_audio, tab_rapport = st.tabs(["📄 Script du podcast", "🎧 Audio", "📥 Rapport PDF"])
+
+    with tab_script:
         st.markdown(f'<div class="podcast-box">{script}</div>', unsafe_allow_html=True)
         st.download_button(
-            "⬇️ Download Script",
+            "⬇️ Télécharger le script",
             data=script,
-            file_name=f"aquaterra_report_{data['timestamp'].replace(' ', '_')}.txt",
+            file_name=f"podcast_aquaterra_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
             mime="text/plain"
         )
 
-    with tab2:
-        # Find latest audio
-        latest_audio = None
-        if st.session_state.history:
-            for entry in reversed(st.session_state.history):
-                if entry.get("audio") and os.path.exists(entry["audio"]):
-                    latest_audio = entry["audio"]
-                    break
-        
-        if latest_audio:
-            with open(latest_audio, "rb") as f:
-                st.audio(f.read(), format="audio/mp3")
+    with tab_audio:
+        audio_path = st.session_state.get("dernier_audio")
+        if audio_path and os.path.exists(audio_path):
+            with open(audio_path, "rb") as f:
+                audio_bytes = f.read()
+            st.audio(audio_bytes, format="audio/mp3")
             st.download_button(
-                "⬇️ Download Podcast MP3",
-                data=open(latest_audio, "rb").read(),
-                file_name=os.path.basename(latest_audio),
+                "⬇️ Télécharger le podcast MP3",
+                data=audio_bytes,
+                file_name=os.path.basename(audio_path),
                 mime="audio/mp3"
             )
         else:
-            st.info("Enable 'Generate podcast audio' in sidebar and run analysis to generate audio.")
+            st.info("Activez 'Générer le podcast audio' dans la barre latérale et relancez l'analyse.")
 
-# History chart
-if len(st.session_state.history) > 1:
+    with tab_rapport:
+        pdf_path = st.session_state.get("dernier_pdf")
+        if pdf_path and os.path.exists(pdf_path):
+            with open(pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+            st.success(f"✅ Rapport PDF généré avec succès !")
+            st.download_button(
+                label="⬇️ Télécharger le rapport PDF complet",
+                data=pdf_bytes,
+                file_name=os.path.basename(pdf_path),
+                mime="application/pdf",
+                type="primary"
+            )
+            st.caption("Le rapport contient : données capteurs, analyse irrigation, pH, nutriments, culture recommandée et guide éducatif complet.")
+        else:
+            st.info("Activez 'Générer le rapport PDF' dans la barre latérale et relancez l'analyse.")
+
+# ── Historique ───────────────────────────────────────────────────
+if len(st.session_state.historique) > 1:
     st.markdown("---")
-    st.subheader("📈 Historical Data")
-    
+    st.subheader("📈 Historique des mesures")
     df = pd.DataFrame([{
-        "Time": e["timestamp"],
-        "Humidity (%)": e["data"]["humidity"],
-        "Temperature (°C)": e["data"]["temperature"],
-        "pH": e["data"]["ph"],
-        "Rainfall (mm)": e["data"]["rainfall"],
-    } for e in st.session_state.history])
-    
-    tab_h, tab_t, tab_p, tab_r = st.tabs(["💧 Humidity", "🌡️ Temperature", "🧪 pH", "🌧️ Rainfall"])
-    with tab_h: st.line_chart(df.set_index("Time")["Humidity (%)"])
-    with tab_t: st.line_chart(df.set_index("Time")["Temperature (°C)"])
-    with tab_p: st.line_chart(df.set_index("Time")["pH"])
-    with tab_r: st.line_chart(df.set_index("Time")["Rainfall (mm)"])
+        "Heure":        e["timestamp"],
+        "Humidité (%)": e["data"]["humidity"],
+        "Température (°C)": e["data"]["temperature"],
+        "pH":           e["data"]["ph"],
+        "Pluies (mm)":  e["data"]["rainfall"],
+        "Profil":       e["data"].get("profil", "—"),
+    } for e in st.session_state.historique])
 
-    st.subheader("📋 Full History")
+    t1, t2, t3, t4 = st.tabs(["💧 Humidité", "🌡️ Température", "🧪 pH", "🌧️ Pluies"])
+    with t1: st.line_chart(df.set_index("Heure")["Humidité (%)"])
+    with t2: st.line_chart(df.set_index("Heure")["Température (°C)"])
+    with t3: st.line_chart(df.set_index("Heure")["pH"])
+    with t4: st.line_chart(df.set_index("Heure")["Pluies (mm)"])
     st.dataframe(df, use_container_width=True)
-
 else:
     st.markdown("---")
-    st.info("👆 Click **Run Analysis** to start the system and see live results.")
+    st.info("👆 Cliquez sur **Analyser** pour démarrer le système et voir les résultats en temps réel.")
     st.markdown("""
-    **How it works:**
-    1. 🌱 **Sensors** simulate real soil data (humidity, pH, temperature, NPK, rainfall)
-    2. 🤖 **AI Agent** analyzes the data using a trained Random Forest model
-    3. 📻 **Podcast** is automatically generated with recommendations in French
-    4. 🎧 **Audio** is converted to MP3 using text-to-speech
+    **Comment ça fonctionne :**
+    1. 🌱 Les **capteurs simulés** génèrent des données réalistes du sol (humidité, pH, température, NPK, pluies)
+    2. 🤖 L'**agent IA** analyse les données avec un modèle Random Forest entraîné
+    3. 📻 Un **podcast en français** est généré automatiquement avec conseils et explications
+    4. 🎧 L'**audio MP3** est créé par synthèse vocale et téléchargeable
+    5. 📄 Un **rapport PDF** complet et éducatif est généré et téléchargeable
     """)
 
-# Footer
 st.markdown("---")
-st.caption("🌿 Aquaterra — Transition Écologique & Dynamique Culturelle Artistique | Smart Agriculture Morocco")
+st.caption("🌿 Aquaterra — Transition Écologique & Dynamique Culturelle Artistique | Agriculture Durable au Maroc")
