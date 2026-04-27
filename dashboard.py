@@ -136,7 +136,13 @@ if st.session_state.derniere_analyse:
 
     with col_a:
         irr = analyse["irrigation"]
-        couleur_map = {"CRITIQUE": "rouge", "BAS": "orange", "OPTIMAL": "vert", "EXCÈS": "bleu"}
+        # FIX: "EXCES" (no accent) matches ai_agent.py output
+        couleur_map = {
+            "CRITIQUE": "rouge",
+            "BAS":      "orange",
+            "OPTIMAL":  "vert",
+            "EXCES":    "bleu",
+        }
         cls = couleur_map.get(irr["statut"], "vert")
         st.markdown(f'<div class="bloc-{cls}"><b>💧 Irrigation — {irr["emoji"]} {irr["statut"]}</b><br>{irr["conseil"]}</div>', unsafe_allow_html=True)
         if irr["litres"] > 0:
@@ -229,7 +235,7 @@ if len(st.session_state.historique) > 1:
     with t2: st.line_chart(df.set_index("Heure")["Température (°C)"])
     with t3: st.line_chart(df.set_index("Heure")["pH"])
     with t4: st.line_chart(df.set_index("Heure")["Pluies (mm)"])
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width=True)
 else:
     st.markdown("---")
     st.info("👆 Cliquez sur **Analyser** pour démarrer le système et voir les résultats en temps réel.")

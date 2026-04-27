@@ -32,8 +32,25 @@ CULTURES_FR = {
 def analyser_irrigation(data):
     h = data["humidity"]
     r = data["rainfall"]
+
+    # ── Champ humide / excès ─────────────────────────────────────
+    # Check excess FIRST so a very wet field isn't misclassified as "BAS"
+    # because its rainfall alone could still be high while humidity is moderate.
+    if h > 85 and r > 220:
+        return {
+            "statut": "EXCES", "emoji": "🔵",
+            "conseil": "Arrêter l'irrigation. Vérifier le drainage du sol.",
+            "litres": 0,
+            "education": (
+                "Un excès d'eau dans le sol peut provoquer l'asphyxie des racines en empêchant "
+                "l'oxygène d'atteindre les zones racinaires. Cela favorise aussi le développement "
+                "de champignons et de maladies comme la pourriture des racines."
+            )
+        }
+
+    # ── Champ sec / critique ─────────────────────────────────────
     if h < SEUILS["critique"]["humidite"] or r < SEUILS["critique"]["pluies"]:
-        litres = round((100 - h) * 0.25, 1)
+        litres = round(max((100 - h) * 0.25, 0), 1)   # guard against negative
         return {
             "statut": "CRITIQUE", "emoji": "🔴",
             "conseil": f"Irriguer immédiatement avec {litres}L/m². Le sol est dangereusement sec.",
@@ -45,8 +62,9 @@ def analyser_irrigation(data):
                 "est indispensable pour éviter des pertes irréversibles de récolte."
             )
         }
+
     elif h < SEUILS["bas"]["humidite"] or r < SEUILS["bas"]["pluies"]:
-        litres = round((70 - h) * 0.15, 1)
+        litres = round(max((70 - h) * 0.15, 0), 1)    # guard against negative
         return {
             "statut": "BAS", "emoji": "🟠",
             "conseil": f"Irriguer avec {litres}L/m² dans les 24 heures.",
@@ -57,17 +75,7 @@ def analyser_irrigation(data):
                 "aux maladies et aux parasites. Une irrigation préventive protège votre récolte."
             )
         }
-    elif h > 85 and r > 220:
-        return {
-            "statut": "EXCÈS", "emoji": "🔵",
-            "conseil": "Arrêter l'irrigation. Vérifier le drainage du sol.",
-            "litres": 0,
-            "education": (
-                "Un excès d'eau dans le sol peut provoquer l'asphyxie des racines en empêchant "
-                "l'oxygène d'atteindre les zones racinaires. Cela favorise aussi le développement "
-                "de champignons et de maladies comme la pourriture des racines."
-            )
-        }
+
     else:
         return {
             "statut": "OPTIMAL", "emoji": "🟢",
@@ -167,6 +175,8 @@ def generer_script_podcast(data, analyse):
     alertes = []
     if irrigation["statut"] in ["CRITIQUE", "BAS"]:
         alertes.append(f"alerte irrigation {irrigation['statut'].lower()}")
+    if irrigation["statut"] == "EXCES":
+        alertes.append("excès d'eau détecté")
     if ph["statut"] in ["ACIDE", "ALCALIN"]:
         alertes.append(f"pH {ph['statut'].lower()}")
     for n in nutriments:
@@ -174,6 +184,11 @@ def generer_script_podcast(data, analyse):
             alertes.append(f"manque de {n['nutriment'].split()[0].lower()}")
 
     intro_alerte = f"Attention ! Des alertes ont été détectées : {', '.join(alertes)}. " if alertes else ""
+
+    # Human-readable irrigation status for audio
+    statut_irr_audio = {
+        "CRITIQUE": "critique", "BAS": "bas", "OPTIMAL": "optimal", "EXCES": "excès d'eau"
+    }.get(irrigation["statut"], irrigation["statut"])
 
     lignes_nutriments = "\n".join([
         f"{n['nutriment']} : statut {n['statut']}. {n['conseil']} {n['education']}"
@@ -196,7 +211,7 @@ Précipitations : {data['rainfall']} millimètres.
 Azote : {data['N']}, Phosphore : {data['P']}, Potassium : {data['K']}.
 
 Deuxièmement, l'irrigation.
-Statut : {irrigation['statut']}. {irrigation['conseil']}
+Statut : {statut_irr_audio}. {irrigation['conseil']}
 Information : {irrigation['education']}
 
 Troisièmement, le pH du sol.
